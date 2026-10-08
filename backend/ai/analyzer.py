@@ -3,6 +3,12 @@ import os
 import socket
 import urllib.request
 
+try:
+    from google import genai
+    HAS_GENAI_SDK = True
+except ImportError:
+    HAS_GENAI_SDK = False
+
 
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -12,6 +18,19 @@ OLLAMA_MODEL = "llama3.2:3b"
 
 
 def ask_gemini(prompt: str, api_key: str) -> str:
+    # Try using official Google GenAI SDK if available
+    if HAS_GENAI_SDK:
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text.strip()
+        except Exception:
+            pass  # Fallback to direct HTTP request
+
     url = f"{GEMINI_API_URL.format(model=GEMINI_MODEL)}?key={api_key}"
     payload = json.dumps({
         "contents": [
