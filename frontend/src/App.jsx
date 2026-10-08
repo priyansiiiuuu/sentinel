@@ -1,9 +1,11 @@
 import { useState } from "react";
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
 
 function formatAnalysis(text) {
+  if (!text) return [];
   const cleaned = text
     .replace(/```python/g, "")
     .replace(/```/g, "")
@@ -33,7 +35,8 @@ function formatAnalysis(text) {
 }
 
 function App() {
-  const [directory, setDirectory] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [findings, setFindings] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -41,9 +44,32 @@ function App() {
   const [fixedCode, setFixedCode] = useState("");
   const [error, setError] = useState("");
 
+  const handleFileSelect = (file) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setError("Please select a valid Python project .zip archive.");
+      setSelectedFile(null);
+      return;
+    }
+    setSelectedFile(file);
+    setError("");
+  };
+
+  const handleInputChange = (event) => {
+    const file = event.target.files?.[0];
+    handleFileSelect(file);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    setDragOver(false);
+    const file = event.dataTransfer.files?.[0];
+    handleFileSelect(file);
+  };
+
   const scanRepository = async () => {
-    if (!directory.trim()) {
-      setError("Enter a repository path first.");
+    if (!selectedFile) {
+      setError("Please select a .zip repository file first.");
       return;
     }
 
@@ -53,15 +79,13 @@ function App() {
     setSelected(null);
     setFixedCode("");
 
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
     try {
       const response = await fetch(`${API_URL}/scan`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          directory: directory.trim(),
-        }),
+        body: formData,
       });
 
       const data = await response.json();
@@ -76,7 +100,7 @@ function App() {
         setSelected(data.findings[0]);
       }
     } catch (err) {
-      setError(err.message || "Unable to connect to Sentinel.");
+      setError(err.message || "Unable to connect to Sentinel backend.");
     } finally {
       setLoading(false);
     }
@@ -136,7 +160,7 @@ function App() {
 
         <div className="status">
           <span className="status-dot" />
-          Local analysis active
+          Analysis service active
         </div>
       </header>
 
@@ -148,8 +172,8 @@ function App() {
             <h2>Find vulnerabilities before attackers do.</h2>
 
             <p className="hero-text">
-              Scan a Python repository with AST based analysis and AI powered
-              security reasoning.
+              Upload a Python repository ZIP archive for AST static analysis and
+              AI security reasoning.
             </p>
           </div>
         </section>
@@ -157,26 +181,76 @@ function App() {
         <section className="scan-card">
           <div className="input-header">
             <div>
-              <h3>Scan Repository</h3>
-              <p>Enter the local path to a Python project.</p>
+              <h3>Scan Repository Archive</h3>
+              <p>Upload a Python repository .zip file to scan for vulnerabilities.</p>
             </div>
           </div>
 
-          <div className="scan-form">
+          <div
+            className={`drop-zone ${dragOver ? "drag-over" : ""} ${
+              selectedFile ? "has-file" : ""
+            }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
             <input
-              type="text"
-              value={directory}
-              onChange={(event) => setDirectory(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  scanRepository();
-                }
-              }}
-              placeholder="/Users/you/Projects/my-app"
+              type="file"
+              accept=".zip"
+              id="zip-upload"
+              style={{ display: "none" }}
+              onChange={handleInputChange}
             />
 
-            <button onClick={scanRepository} disabled={loading}>
-              {loading ? "Scanning..." : "Scan Repository"}
+            {!selectedFile ? (
+              <label htmlFor="zip-upload" className="drop-zone-content">
+                <div className="upload-icon">📦</div>
+                <div>
+                  <strong>Click to choose file</strong> or drag and drop a <code>.zip</code> archive
+                </div>
+                <span className="upload-hint">Supports Python project ZIP archives</span>
+              </label>
+            ) : (
+              <div className="file-preview">
+                <div className="file-info">
+                  <span className="file-icon">📁</span>
+                  <div>
+                    <strong>{selectedFile.name}</strong>
+                    <span>{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="remove-file-btn"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    setError("");
+                  }}
+                  disabled={loading}
+                >
+                  Change File
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="action-row">
+            <button
+              onClick={scanRepository}
+              disabled={loading || !selectedFile}
+              className="scan-btn"
+            >
+              {loading ? (
+                <span className="btn-loading">
+                  <span className="spinner" /> Analyzing Repository...
+                </span>
+              ) : (
+                "Scan Repository"
+              )}
             </button>
           </div>
 
@@ -233,8 +307,7 @@ function App() {
                       <strong>{finding.type}</strong>
 
                       <span>
-                        {finding.file.split("/").pop()} : line{" "}
-                        {finding.line}
+                        {finding.file} : line {finding.line}
                       </span>
                     </div>
 
@@ -364,8 +437,8 @@ function App() {
             <h3>Ready to secure your code</h3>
 
             <p>
-              Enter a Python repository path above and Sentinel will analyze
-              it for security vulnerabilities.
+              Select or drop a Python project <code>.zip</code> archive above and Sentinel
+              will analyze it for security vulnerabilities.
             </p>
           </section>
         )}

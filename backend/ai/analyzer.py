@@ -1,14 +1,57 @@
 import json
+import os
+import socket
 import urllib.request
 
 
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL = "llama3.2:3b"
+OLLAMA_MODEL = "llama3.2:3b"
+
+
+def ask_gemini(prompt: str, api_key: str) -> str:
+    url = f"{GEMINI_API_URL.format(model=GEMINI_MODEL)}?key={api_key}"
+    payload = json.dumps({
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }).encode("utf-8")
+
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as err:
+        return f"AI Analysis Error (Gemini API request failed: {err})"
+
+
+def is_ollama_online(host: str = "127.0.0.1", port: int = 11434, timeout: float = 0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def ask_ollama(prompt: str) -> str:
+    if not is_ollama_online():
+        return "AI Analysis Unavailable: Local Ollama service is offline."
+
     payload = json.dumps({
-        "model": MODEL,
+        "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
     }).encode("utf-8")
@@ -20,10 +63,27 @@ def ask_ollama(prompt: str) -> str:
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=180) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        return data["response"].strip()
+    except Exception as err:
+        return f"AI Analysis Unavailable: Ollama request failed ({err})."
 
-    return data["response"].strip()
+
+def ask_llm(prompt: str) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+    if api_key:
+        return ask_gemini(prompt, api_key)
+
+    if is_ollama_online():
+        return ask_ollama(prompt)
+
+    return (
+        "AI Analysis Unavailable: Please set GEMINI_API_KEY environment variable "
+        "or start local Ollama service."
+    )
 
 
 def analyze_finding(finding: dict) -> dict:
@@ -56,7 +116,7 @@ Be concise and technically accurate.
 Do not invent facts about the application.
 """
 
-    analysis = ask_ollama(prompt)
+    analysis = ask_llm(prompt)
 
     return {
         **finding,
@@ -98,4 +158,4 @@ Rules:
 5. Do not invent unrelated application code.
 """
 
-    return ask_ollama(prompt)
+    return ask_llm(prompt)

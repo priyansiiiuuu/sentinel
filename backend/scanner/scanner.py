@@ -100,12 +100,20 @@ def scan_file(file_path: str) -> list[dict]:
 def scan_directory(directory: str) -> list[dict]:
     all_findings = []
 
-    root = Path(directory)
+    root = Path(directory).resolve()
 
     for file_path in root.rglob("*.py"):
         if ".venv" in file_path.parts or "__pycache__" in file_path.parts:
             continue
 
-        all_findings.extend(scan_file(str(file_path)))
+        findings = scan_file(str(file_path))
+        for finding in findings:
+            try:
+                rel_path = str(Path(finding["file"]).resolve().relative_to(root))
+                finding["file"] = rel_path
+            except ValueError:
+                pass
+        all_findings.extend(findings)
 
     return all_findings
+
