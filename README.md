@@ -1,55 +1,21 @@
 # Sentinel
 
-## AI Security Engineer for Python Codebases
+## AI-Powered Security Code Review for Python
 
-Sentinel is a local AI assisted security review platform that combines Python AST based static analysis with a local large language model to identify common application security vulnerabilities, explain their impact, and generate remediation suggestions.
+Sentinel is an AI-assisted security analysis platform that scans Python codebases for common vulnerabilities, explains security risks, and generates remediation suggestions.
+
+**Live Demo:** https://sentinel-1-pwap.onrender.com
 
 ## Features
 
-- AST based Python security scanning
+- AST-based Python security scanning
 - Hardcoded secret detection
 - Command injection detection
 - Dynamic code execution detection
 - Severity classification
 - Source code context for findings
-- AI powered vulnerability explanation
-- AI generated remediation suggestions
-- Local LLM inference using Ollama
+- AI-powered vulnerability explanations
+- AI-generated secure remediation suggestions
+- Safe ZIP repository extraction
 - React security dashboard
 - FastAPI backend
-
-## Tech Stack
-
-**Backend:** Python, FastAPI, Python AST, Uvicorn
-
-**AI:** Ollama, Llama 3.2 3B
-
-**Frontend:** React, Vite, JavaScript, CSS
-
-## Architecture
-
-```text
-Python Repository
-       │
-       ▼
-AST Security Scanner
-       │
-       ▼
-Vulnerability Findings
-       │
-       ├── Severity
-       ├── Source Location
-       └── Code Snippet
-              │
-              ▼
-        Local LLM Analysis
-         Ollama / Llama 3.2
-              │
-              ▼
-       Security Explanation
-              │
-              ▼
-       Remediation Suggestion
-              │
-              ▼
-        React Dashboard
