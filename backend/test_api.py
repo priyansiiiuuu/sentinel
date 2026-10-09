@@ -91,6 +91,69 @@ def test_gemini_provider_with_mock_key():
                 print("  SUCCESS: ask_llm successfully routed via HTTP fallback!", flush=True)
 
 
+def test_gemini_503_fallback_scenarios():
+    print("\n--- Testing Gemini 503 Fallback Scenarios ---", flush=True)
+
+    # Scenario 1: Primary model succeeds
+    mock_client1 = MagicMock()
+    resp1 = MagicMock()
+    resp1.text = "Primary Model Output"
+    mock_client1.models.generate_content.return_value = resp1
+
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
+        with patch("google.genai.Client", return_value=mock_client1):
+            res = ask_llm("test prompt")
+            assert res == "Primary Model Output"
+            mock_client1.models.generate_content.assert_called_once_with(
+                model="gemini-3.8-flash", contents="test prompt"
+            )
+            print("  SUCCESS: Primary model gemini-3.8-flash succeeded directly!", flush=True)
+
+    # Scenario 2: Primary returns 503 and fallback succeeds (gemini-3.7-flash)
+    mock_client2 = MagicMock()
+
+    def side_effect_503(model, contents):
+        if model == "gemini-3.8-flash":
+            raise Exception("503 Service Unavailable: This model is currently experiencing high demand.")
+        elif model == "gemini-3.7-flash":
+            resp2 = MagicMock()
+            resp2.text = "Fallback Model Output"
+            return resp2
+        raise ValueError(f"Unexpected model: {model}")
+
+    mock_client2.models.generate_content.side_effect = side_effect_503
+
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
+        with patch("google.genai.Client", return_value=mock_client2):
+            res = ask_llm("test prompt")
+            assert res == "Fallback Model Output"
+            assert mock_client2.models.generate_content.call_count == 2
+            print("  SUCCESS: Primary 503 fallback to gemini-3.7-flash succeeded!", flush=True)
+
+    # Scenario 3: Both models fail with 503
+    mock_client3 = MagicMock()
+    mock_client3.models.generate_content.side_effect = Exception("503 Service Unavailable: High Demand")
+
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
+        with patch("google.genai.Client", return_value=mock_client3):
+            res = ask_llm("test prompt")
+            assert "Gemini API 503 fallback failed" in res
+            assert mock_client3.models.generate_content.call_count == 2
+            print("  SUCCESS: Both models failed with 503, error reported cleanly!", flush=True)
+
+    # Scenario 4: Non-503 error (401 Invalid Key) does not trigger fallback
+    mock_client4 = MagicMock()
+    mock_client4.models.generate_content.side_effect = Exception("401 API_KEY_INVALID: Invalid API Key")
+
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "invalid_key"}):
+        with patch("google.genai.Client", return_value=mock_client4):
+            res = ask_llm("test prompt")
+            assert "Gemini API request failed" in res
+            # Must ONLY call primary model once
+            assert mock_client4.models.generate_content.call_count == 1
+            print("  SUCCESS: 401 error did not trigger fallback!", flush=True)
+
+
 def test_fallback_when_no_api_key():
     print("\n--- Testing Provider Fallback (No Gemini API Key) ---", flush=True)
     with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
@@ -155,6 +218,7 @@ def test_generate_fix_endpoint():
 if __name__ == "__main__":
     test_zip_slip_protection()
     test_gemini_provider_with_mock_key()
+    test_gemini_503_fallback_scenarios()
     test_fallback_when_no_api_key()
     test_scan_function()
     test_generate_fix_endpoint()

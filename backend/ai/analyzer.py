@@ -4,33 +4,49 @@ import socket
 import urllib.request
 
 
-GEMINI_MODEL = "gemini-3.8-flash"
+PRIMARY_MODEL = "gemini-3.8-flash"
+FALLBACK_MODEL = "gemini-3.7-flash"
+
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3.2:3b"
 
 
-def ask_gemini(prompt: str, api_key: str) -> str:
+def is_503_error(err: Exception) -> bool:
     """
-    Queries Google Gemini API using official google-genai Python SDK (lazily imported).
+    Checks if an exception represents an HTTP 503 Service Unavailable / High Demand error.
+    """
+    if hasattr(err, "code") and getattr(err, "code") == 503:
+        return True
+    if hasattr(err, "status_code") and getattr(err, "status_code") == 503:
+        return True
+    err_str = str(err).lower()
+    return any(
+        keyword in err_str
+        for keyword in ["503", "unavailable", "high demand", "overloaded", "resource_exhausted"]
+    )
+
+
+def _invoke_gemini_model(model: str, prompt: str, api_key: str) -> str:
+    """
+    Attempts single Gemini API call using official google-genai Python SDK (lazily imported)
+    with HTTP REST fallback.
     """
     try:
         from google import genai
 
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=model,
             contents=prompt,
         )
         if response and response.text:
             return response.text.strip()
-        return "AI Analysis Error: Empty response returned by Gemini API."
+        raise ValueError("Empty response returned by Gemini API.")
     except ImportError:
         pass  # Fallback to direct HTTP request below
-    except Exception as err:
-        return f"AI Analysis Error (Gemini API request failed: {err})"
 
     # Fallback to direct HTTP request if SDK is not present
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = json.dumps({
         "contents": [
             {
@@ -48,12 +64,26 @@ def ask_gemini(prompt: str, api_key: str) -> str:
         method="POST",
     )
 
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.loads(response.read().decode("utf-8"))
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+def ask_gemini(prompt: str, api_key: str) -> str:
+    """
+    Queries Google Gemini API with gemini-3.8-flash as primary model.
+    If and only if primary model fails with HTTP 503, attempts fallback model gemini-3.7-flash once.
+    """
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return _invoke_gemini_model(PRIMARY_MODEL, prompt, api_key)
     except Exception as err:
-        return f"AI Analysis Error (Gemini API HTTP request failed: {err})"
+        if is_503_error(err):
+            try:
+                return _invoke_gemini_model(FALLBACK_MODEL, prompt, api_key)
+            except Exception as fallback_err:
+                return f"AI Analysis Error (Gemini API 503 fallback failed: {fallback_err})"
+        else:
+            return f"AI Analysis Error (Gemini API request failed: {err})"
 
 
 def is_ollama_online(host: str = "127.0.0.1", port: int = 11434, timeout: float = 0.2) -> bool:
