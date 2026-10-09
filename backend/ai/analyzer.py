@@ -10,15 +10,15 @@ except ImportError:
     HAS_GENAI_SDK = False
 
 
-GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
+GEMINI_MODEL = "gemini-3.8-flash"
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3.2:3b"
 
 
 def ask_gemini(prompt: str, api_key: str) -> str:
-    # Try using official Google GenAI SDK if available
+    """
+    Queries Google Gemini API using official google-genai Python SDK.
+    """
     if HAS_GENAI_SDK:
         try:
             client = genai.Client(api_key=api_key)
@@ -28,10 +28,12 @@ def ask_gemini(prompt: str, api_key: str) -> str:
             )
             if response and response.text:
                 return response.text.strip()
-        except Exception:
-            pass  # Fallback to direct HTTP request
+            return "AI Analysis Error: Empty response returned by Gemini API."
+        except Exception as err:
+            return f"AI Analysis Error (Gemini API request failed: {err})"
 
-    url = f"{GEMINI_API_URL.format(model=GEMINI_MODEL)}?key={api_key}"
+    # Fallback to direct HTTP request if SDK is not present
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     payload = json.dumps({
         "contents": [
             {
@@ -54,7 +56,7 @@ def ask_gemini(prompt: str, api_key: str) -> str:
             data = json.loads(response.read().decode("utf-8"))
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as err:
-        return f"AI Analysis Error (Gemini API request failed: {err})"
+        return f"AI Analysis Error (Gemini API HTTP request failed: {err})"
 
 
 def is_ollama_online(host: str = "127.0.0.1", port: int = 11434, timeout: float = 0.2) -> bool:

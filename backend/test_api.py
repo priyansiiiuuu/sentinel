@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sys
 import tempfile
@@ -45,36 +46,49 @@ def test_zip_slip_protection():
 
 
 def test_gemini_provider_with_mock_key():
-    print("\n--- Testing Gemini API Provider (Mocked Key) ---", flush=True)
+    print("\n--- Testing Gemini API Provider (SDK & HTTP Mock) ---", flush=True)
 
-    fake_response = {
+    # 1. Test SDK mock
+    mock_genai_client = MagicMock()
+    mock_sdk_response = MagicMock()
+    mock_sdk_response.text = (
+        "**Explanation:** Mocked Gemini SDK vulnerability explanation.\n\n"
+        "**Impact:** High impact.\n\n"
+        "**Recommendation:** Use secure environment variable."
+    )
+    mock_genai_client.models.generate_content.return_value = mock_sdk_response
+
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "test_fake_gemini_api_key_123"}):
+        with patch("google.genai.Client", return_value=mock_genai_client):
+            response = ask_llm("Analyze this security finding...")
+            assert "Mocked Gemini SDK" in response, f"Unexpected response: {response}"
+            print("  SUCCESS: ask_llm successfully routed via official google-genai SDK!", flush=True)
+
+    # 2. Test HTTP fallback mock
+    fake_http_response = {
         "candidates": [
             {
                 "content": {
                     "parts": [
                         {
-                            "text": (
-                                "**Explanation:** Mocked Gemini vulnerability explanation.\n\n"
-                                "**Impact:** High impact.\n\n"
-                                "**Recommendation:** Use secure environment variable."
-                            )
+                            "text": "**Explanation:** Mocked Gemini HTTP vulnerability explanation."
                         }
                     ]
                 }
             }
         ]
     }
-
     mock_response_obj = MagicMock()
-    mock_response_obj.read.return_value = json_encode(fake_response).encode("utf-8")
+    mock_response_obj.read.return_value = json.dumps(fake_http_response).encode("utf-8")
     mock_response_obj.__enter__.return_value = mock_response_obj
 
     with patch.dict(os.environ, {"GEMINI_API_KEY": "test_fake_gemini_api_key_123"}):
-        with patch("urllib.request.urlopen", return_value=mock_response_obj) as mock_url:
-            response = ask_llm("Analyze this security finding...")
-            assert "Mocked Gemini" in response, f"Unexpected response: {response}"
-            assert mock_url.called, "urllib.request.urlopen was not called for Gemini"
-            print("  SUCCESS: ask_llm successfully routed to Gemini API with fake API key!", flush=True)
+        with patch("ai.analyzer.HAS_GENAI_SDK", False):
+            with patch("urllib.request.urlopen", return_value=mock_response_obj) as mock_url:
+                response = ask_llm("Analyze this security finding...")
+                assert "Mocked Gemini HTTP" in response, f"Unexpected response: {response}"
+                assert mock_url.called, "urllib.request.urlopen was not called"
+                print("  SUCCESS: ask_llm successfully routed via HTTP fallback!", flush=True)
 
 
 def test_fallback_when_no_api_key():
@@ -120,23 +134,13 @@ def test_generate_fix_endpoint():
         "code_snippet": "password = 'super_secret_password'",
     }
 
-    with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
-        fake_response = {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {"text": "password = os.environ.get('PASSWORD')"}
-                        ]
-                    }
-                }
-            ]
-        }
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json_encode(fake_response).encode("utf-8")
-        mock_resp.__enter__.return_value = mock_resp
+    mock_genai_client = MagicMock()
+    mock_sdk_response = MagicMock()
+    mock_sdk_response.text = "password = os.environ.get('PASSWORD')"
+    mock_genai_client.models.generate_content.return_value = mock_sdk_response
 
-        with patch("urllib.request.urlopen", return_value=mock_resp):
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
+        with patch("google.genai.Client", return_value=mock_genai_client):
             from pydantic import BaseModel
             class FixRequest(BaseModel):
                 finding: dict
@@ -145,12 +149,7 @@ def test_generate_fix_endpoint():
             res = fix(req)
             assert "fixed_code" in res, "fixed_code missing in response"
             assert "os.environ" in res["fixed_code"], f"Unexpected fix code: {res}"
-            print("  SUCCESS: /generate-fix endpoint returned secure code fix!", flush=True)
-
-
-def json_encode(obj):
-    import json
-    return json.dumps(obj)
+            print("  SUCCESS: /generate-fix endpoint returned secure code fix via SDK!", flush=True)
 
 
 if __name__ == "__main__":
