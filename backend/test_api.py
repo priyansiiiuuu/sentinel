@@ -83,7 +83,7 @@ def test_gemini_provider_with_mock_key():
     mock_response_obj.__enter__.return_value = mock_response_obj
 
     with patch.dict(os.environ, {"GEMINI_API_KEY": "test_fake_gemini_api_key_123"}):
-        with patch("ai.analyzer.HAS_GENAI_SDK", False):
+        with patch("google.genai.Client", side_effect=ImportError("SDK not installed")):
             with patch("urllib.request.urlopen", return_value=mock_response_obj) as mock_url:
                 response = ask_llm("Analyze this security finding...")
                 assert "Mocked Gemini HTTP" in response, f"Unexpected response: {response}"
